@@ -39,7 +39,10 @@ The LoTW interface allows records selected by QSO start date (and if so,
 optional end date), station call, QSO mode, and QSO band.  You may
 make those selections with the --qso_startdate, --qso_enddate,
 --qso_call, --qso_band, and --qso_mode options.  Note that the program
-does NOT do any validation on the parameters you specify.
+does NOT do any validation on the parameters you specify.  Also note
+that the LoTW interfaces allows adding starting and ending time to
+the QSO date range, but for the moment I have not included that.  It
+seems that selection by date range ought to be sufficient.
 
 In addition to those selections, I've added a couple of filter
 criteria that are applied AFTER the adifile is downloaded (i.e., these
