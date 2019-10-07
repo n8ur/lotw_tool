@@ -237,6 +237,40 @@ else:
 
 print()
 print("Writing processed log file to:",outfile)
-for rec in sorted_by:
-    print(formatqso(rec))
 
+options = vars(args)
+optstring = ""
+for k,v in sorted(vars(args).items()):
+    if v:
+        if k == 'password':
+            v = "****"
+        if k == 'separator':
+            v = repr(v)
+
+        optstring += "--{0}: {1}; ".format(k,v)
+
+words = iter(optstring.split(';'))
+lines, current = [], next(words)
+for word in words:
+    if len(current) + 1 + len(word) > 70:
+        lines.append(current)
+        current = word
+    else:
+        current += " " + word
+lines.append(current)
+
+with open(outfile,'w') as f:
+    string = "# Log file created by lotw_tool.py from " + adifile + "\n"
+    f.write(string)
+    for l in lines:
+        if len(l) > 1:
+            l = '# ' +l + '\n'
+            f.write(l)
+    string = \
+        "# Fields:  Date/Time, Call, Band, Mode, QSL, Grid, State, Country\n"
+    f.write(string)
+
+    for rec in sorted_by:
+        string = formatqso(rec) + '\n'
+        f.write(string)
+exit()
