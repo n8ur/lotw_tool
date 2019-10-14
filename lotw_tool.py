@@ -199,7 +199,7 @@ def make_logfile(args,adifile,logfile):
                 if args.gridsquare:
                     if args.gridsquare == "----" and not d['GRIDSQUARE']:
                         qso_list.append(d)
-                    elif d['GRIDSQUARE'] and args.gridsquare in d['GRIDSQUARE']:
+                    elif d['GRIDSQ/UARE'] and args.gridsquare in d['GRIDSQUARE']:
                         qso_list.append(d)
                     break
                     
@@ -266,8 +266,7 @@ def make_logfile(args,adifile,logfile):
 # qrz.com to fetch what they think the grid is
 ###############################################################################
 def get_qrz_grids(args,logfile,outfile):
-    print("Querying QRZ.com for grid info.")
-    print("This may 5 seconds or more per call, in bursts...")
+    print("Querying QRZ.com. This may take 5+ seconds per call, in bursts...")
 
     # this list will hold all the calls from the logfile, sorted and deduped
     log_calls = []
@@ -277,6 +276,7 @@ def get_qrz_grids(args,logfile,outfile):
     # this list will hold the list of calls and grids returned from qrz.com
     qrz_grids = []
 
+    # get lists of ungridded calls and confirmed grids from logfile
     with open(logfile,encoding='latin1') as f:
         for line in f:
             if line.startswith('#'):
@@ -308,8 +308,7 @@ def get_qrz_grids(args,logfile,outfile):
             key = rec.replace('>','<').split('<')[2]
 
     # now fetch grid from QRZ.com using session key for each call
-    count = 1
-    grid_list = []
+    qrz_list = []
     start_time = time.time()
     for call in log_calls:
         data = { 's':key,'callsign':call }
@@ -322,12 +321,12 @@ def get_qrz_grids(args,logfile,outfile):
             # poor man's xml parser
             if '<grid>' in rec:
                 grid = rec.replace('>','<').split('<')[2]
-        qrz_grids.append([grid,call])
-        print("{} {:.2f} {} {}".format(count,
-            time.time() - start_time, call, grid[:4]))
-        count += 1
 
-    qrz_grids = sorted(qrz_grids)
+        qrz_list.append([grid,call])
+        print('.',end='',flush=True)
+
+    qrz_list = sorted(qrz_list)
+    count = len(qrz_list)
 
     # write the qrz results to file
     with open(outfile,'w') as f:
@@ -336,9 +335,12 @@ def get_qrz_grids(args,logfile,outfile):
         string = str("# lotw_tool.py v" + version + " from " + outfile + "\n")
         print(type(string),string)
         f.write(string)
-        for l in qrz_grids:
+        for l in qrz_list:
             string = l[0][:4] + '\t' + l[1] + '\n'
             f.write(string)
+    print("\nFinished getting QRZ.com matches for {} calls.".format(count))
+    print("Elapsed time: {.1f}".format(time.time() - start_time),end=" ")
+    print("and wrote data to",outfile)
 
 ###############################################################################
 # getargs -- get command line arguments and supply defaults

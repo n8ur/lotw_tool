@@ -88,6 +88,7 @@ in the QRZ database), or busted calls.
 the grid does not show up in the LoTW file as being confirmed.  This is the
 list you'll want to start with to pump up your grid count.
 
+```
 ALL THE OPTIONS (as of 2019-10-13.1):
 usage: lotw_tool.py [-h] [--adifile ADIFILE] [--login LOGIN]
                     [--password PASSWORD] [--logcall LOGCALL]
@@ -133,3 +134,4 @@ optional arguments:
   --logfile LOGFILE     Log file name (if not given, autogenerate it
   --separator SEPARATOR
                         Log file field separator (default is tab)
+```
