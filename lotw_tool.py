@@ -14,11 +14,10 @@
 #       but WITHOUT ANY WARRANTY; without even the implied warranty of
 #       MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 #       GNU General Public License for more details.
-#       Software to communicate with Ashtech GPS receivers via serial port.
 #
-################################################################################
+###############################################################################
 
-version = "2019-10-13.1"
+version = "2019-10-18.1"
 
 import sys
 import string
@@ -27,7 +26,6 @@ import requests
 from requests.exceptions import HTTPError
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
-from tqdm import tqdm
 from pathlib import Path
 import argparse
 
@@ -48,6 +46,129 @@ field_keys = [
     'QSL_RCVD','QSLRDATE','QSO_DATE','STATE','STATION_CALLSIGN','TIME_ON'
     ]
 
+###############################################################################
+# getargs -- get command line arguments and supply defaults
+###############################################################################
+def getargs():
+    parser = argparse.ArgumentParser(description=
+            'Tool to download/parse ARRL Log of the World ADI files')
+
+    def str2bool(v):
+        if isinstance(v, bool):
+            return v
+        if v.lower() in ('yes', 'true', 't', 'y', '1'):
+            return True
+        elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+            return False
+        else:
+            raise argparse.ArgumentTypeError('Boolean value expected.')
+
+    # login and file parametersp
+    parser.add_argument('--adifile',type=str,
+                      help='read this ADI file (if blank, download from LoTW')
+
+    # note: --login, --password, --logcall, --mygrid
+    # are all ignored if --adifile is specified
+    parser.add_argument("--login", help='LOtW user name')
+    parser.add_argument("--password", help='LOtW user password')
+
+    # these options help select log call or location since LoTW
+    # doesn't allow you to sort by the location defined in tQSL.
+    parser.add_argument('--logcall',type=str,
+                      help='Select QSOs where my call is this')
+    parser.add_argument('--mygrid',type=str.upper,
+                      help='Select QSOs where my grid is this')
+
+    # selection parameters
+    qso_status = parser.add_mutually_exclusive_group()
+    qso_status.add_argument('--qsl', action='store_true',
+                      help='Download only QSOs with QSL (default download all)')
+    qso_status.add_argument('--noqsl', action='store_true',
+                      help='Output only QSOs without QSL)')
+
+    # this causes a QRZ lookup for QSOs without grid information.
+    # output goes to a separate file with de-duped call and QRZ
+    # grid
+    parser.add_argument('--match_missing_grids', action='store_true',
+                      help='Merge QRZ grid data to QSOs with missing grid')
+    parser.add_argument("--qrz_login", help='QRZ user name')
+    parser.add_argument("--qrz_password", help='QRZ user password')
+
+    
+    parser.add_argument('--startdate',type=str,
+                      help='Output QSOs after this date (YYYY-MM-DD)')
+    parser.add_argument('--enddate',type=str,
+                      help='Output QSOs before this date (YYYY-MM-DD)')
+    parser.add_argument('--call',type=str.upper,
+                      help='Output QSOs with this call')
+    parser.add_argument('--band',type=str.upper,
+                      help='Select QSOs where the band is this (e.g., \'6M\')')
+    parser.add_argument('--mode',type=str.upper,
+                      help='Select QSOs where the mode is this (e.g., \'CW\')')
+
+    # LoTW allows you to select QSOs by numbered DXCC entity, which isn't
+    # all that useful if you have to map the country name to the number
+    # (and I'm way too lazy to build a lookup, and even if I did, you
+    # wouldn't enter the name exactly the same way_.  But it might be
+    # useful to see only DX (being U.S.-centric, that means anything
+    # that's not U.S.A.).  Selecting this doesn't affect the adifile
+    # contents as the filter is applied only at the output stage.
+    parser.add_argument('--dx_only',action='store_true',
+                      help='Select QSOs where country is not U.S.A.')
+
+    # LoTW doesn't allow you to specify grid in the download, so
+    # if you specify --grid it won't affect the contents of the
+    # downloaded adifile.  However, the log output will be filtered
+    # to include only the selected grid.  If you want to find records
+    # where the grid is blank, use this option with "None" as the argument.
+    parser.add_argument('--grid',type=str.upper,
+                      help='Select QSOs from this grid; \'None\' for missing')
+
+    # sort parameters.  To keep things sane, you can
+    # only sort by one of these (plus QSO date/time).  Input will be
+    # changed to upper case.
+    choices=['CALL','GRIDSQUARE', 'STATE', 'COUNTRY', 'BAND', 'MODE']
+    parser.add_argument('--sortby',type=str.upper,default=None,choices=choices)
+
+    # output file parameters
+    parser.add_argument('--logfile',type=str,
+                      help='Log file name (if not given, autogenerate it')
+    parser.add_argument('--separator',type=str,default='\t',
+                      help='Log file field separator (default is tab)')
+
+    args = parser.parse_args()
+
+    if not args.adifile:
+        if not args.login or not args.password or not args.logcall:
+            parser.error("Error: either login/password/logcall or "\
+                              "adifile required")
+
+#    if args.match_missing_grids:
+#        if not args.qrz_login or not argz.qrz_password:
+#            parser.error("Error: --qso_nogrid requires QRZ login and password")
+
+    if args.adifile and (args.login or args.password or args.logcall):
+        print("NOTE: adifile specified, login/password/logcall/"\
+                "mygrid ignored")
+    if args.grid in ['none','None','NONE']:
+        args.grid = '----'
+
+    if args.qsl:
+        args.qsl = 'yes'
+    else:
+        args.qsl = 'no'
+
+    if args.noqsl:
+        args.noqsl = 'yes'
+    else:
+        args.noqsl = 'no'
+
+    if args.dx_only:
+        args.dx_only = 'yes'
+    else:
+        args.dx_only = 'no'
+
+    return args
 ###############################################################################
 # http_get_request -- send data to URL and return response
 ###############################################################################
@@ -84,9 +205,9 @@ def extract_fields(record):
     return d
                 
 ###############################################################################
-# printqso -- format and output QSO record
+# format_qso -- format and output QSO record
 ###############################################################################
-def formatqso(rec):
+def format_qso(rec):
     def make_month(argument):
         months = {
             1: "Jan",
@@ -143,30 +264,27 @@ def get_adifile(args, adifile):
     # add selection criteria if set
     # note: we can't specify QSO grid here, so we filter
     # for that in the output routine below
-    if args.qso_startdate:
-        data['qso_startdate'] = args.qso_startdate
-    if args.qso_enddate:
-        data['qso_enddate'] = args.qso_startdate
-    if args.qso_qsl:
-        data['qso_call'] = args.qso_call
-    if args.qso_band:
-        data['qso_band'] = args.qso_band
-    if args.qso_mode:
-        data['qso_mode'] = args.qso_mode
-    if args.qso_qsl:
-        data['qso_qsl'] = args.qso_qsl
+    if args.startdate:
+        data['qso_startdate'] = args.startdate
+    if args.enddate:
+        data['qso_enddate'] = args.startdate
+    if args.qsl:
+        data['qso_call'] = args.call
+    if args.band:
+        data['qso_band'] = args.band
+    if args.mode:
+        data['qso_mode'] = args.mode
+    if args.qsl:
+        data['qso_qsl'] = args.qsl
 
     base_url = 'https://lotw.arrl.org/lotwuser/lotwreport.adi'
 
     # not using http_get_request() because we want to stream
     r = requests.get(base_url,params=data, stream=True)
-    t = tqdm(unit='iB',unit_scale=True)
 
     with open(adifile,'wb') as f:
         for data in r.iter_content(4096):
-            t.update(len(data))
             f.write(data)
-    t.close()
 
 ###############################################################################
 # make_logfile -- process adifile to logfile format
@@ -181,12 +299,13 @@ def make_logfile(args,adifile,logfile):
         for q in buf:
             d = extract_fields(q)
             while d['CALL']:    # without a call, it's not real
+
                 # can't select for these fields in the LoTW request,
                 # so filter for them here
 
-                # print only if my gridsquare matches
-                if args.own_gridsquare:
-                    if args.own_gridsquare not in d['MY_GRIDSQUARE']:
+                # print only if my grid matches
+                if args.mygrid:
+                    if args.mygrid not in d['MY_GRIDSQUARE']:
                         break
 
                 # if --dx_only, exclude records where country is U.S.A.
@@ -194,25 +313,25 @@ def make_logfile(args,adifile,logfile):
                     d['COUNTRY'] == "UNITED STATES OF AMERICA":
                         break
 
-                # print only if QSO gridsquare matches, or if specified
-                # "None" then only if there is no gridsquare in record
-                if args.gridsquare:
-                    if args.gridsquare == "----" and not d['GRIDSQUARE']:
+                # print only if QSO grid matches, or if specified
+                # "None" then only if there is no grid in record
+                if args.grid:
+                    if args.grid == "----" and not d['GRIDSQUARE']:
                         qso_list.append(d)
-                    elif d['GRIDSQ/UARE'] and args.gridsquare in d['GRIDSQUARE']:
+                    elif d['GRIDSQUARE'] and args.grid in d['GRIDSQUARE']:
                         qso_list.append(d)
                     break
                     
-                # if qso_noqsl, exclude records where QSL_RCVD is Y
-                if args.qso_noqsl:
-                    if args.qso_noqsl == 'yes' and d['QSL_RCVD'] == 'Y':
+                # if noqsl, exclude records where QSL_RCVD is Y
+                if args.noqsl:
+                    if args.noqsl == 'yes' and d['QSL_RCVD'] == 'Y':
                         break
     
                 qso_list.append(d)
                 break
     
-    # sort by 'CALL','GRIDSQUARE', 'STATE', 'COUNTRY', 'BAND', or 'MODE' first,
-    # then by date and time
+    # sort by 'CALL','GRIDSQUARE', 'STATE', 'COUNTRY', 'BAND', or 'MODE'
+    # first, then by date and time
 
     if args.sortby:
         sorted_by = sorted(qso_list, key = lambda i: (i[args.sortby],
@@ -221,7 +340,7 @@ def make_logfile(args,adifile,logfile):
         sorted_by = sorted(qso_list, key = lambda i: (i['QSO_DATE'], i['TIME_ON']))
 
     # write output file
-    print("Writing processed log file to:",logfile)
+    print("Writing processed log file to",logfile)
 
     # create file header showing params
     options = vars(args)
@@ -229,6 +348,8 @@ def make_logfile(args,adifile,logfile):
     for k,v in sorted(vars(args).items()):
         if v:
             if k == 'password':
+                v = "****"
+            if k == 'qrz_password':
                 v = "****"
             if k == 'separator':
                 v = repr(v)
@@ -255,18 +376,56 @@ def make_logfile(args,adifile,logfile):
                 l = '# ' +l + '\n'
                 f.write(l)
         string = \
-            "# Fields:  Date/Time, Call, Band, Mode, QSL, Grid, State, Country\n"
+            "# Fields: Date, Call, Band, Mode, QSL, Grid, State, Country\n"
         f.write(string)
 
         for rec in sorted_by:
-            string = formatqso(rec) + '\n'
+            string = format_qso(rec) + '\n'
             f.write(string)
+
+###############################################################################
+# get_confirmed_grids -- reads logfile writes a sorted,
+# deduped list of confirmed grids
+###############################################################################
+def get_confirmed_grids(args,logfile):
+    # this list will hold all the grids from the logfile, sorted and deduped
+    log_grids = []
+
+    # get list of confirmed grids from logfile
+    with open(logfile,encoding='latin1') as f:
+        for line in f:
+            if line.startswith('#'):
+                continue
+            fields = line.split(args.separator)  
+            if fields[5][:4] != '----':
+                # add to the list of confirmed grids
+                log_grids.append(fields[5][:4])
+
+    # sort and remove duplicates
+    log_grids = dedupe_list(log_grids)
+
+    p = Path(logfile)
+    confirmed_grids_file = str(p.parent.joinpath(p.stem +
+        "_confirmed_grids.txt"))
+
+    print("Writing", len(log_grids),"confirmed grids to ",end="")
+    print(confirmed_grids_file)
+
+    with open(confirmed_grids_file,"w") as f:
+        string = "# List of " + str(len(log_grids)) + \
+                " confirmed grids created by lotw_tool.py\n"
+        f.write(string)
+        string = "# v" + version + " from " + logfile + "\n"
+        f.write(string)
+        for x in log_grids:
+            string = x + '\n'
+            f.write(string)
+
 ###############################################################################
 # get_qrz_grids -- read logfile, extract calls without grid, send list to
 # qrz.com to fetch what they think the grid is
 ###############################################################################
 def get_qrz_grids(args,logfile,outfile):
-    print("Querying QRZ.com. This may take 5+ seconds per call, in bursts...")
 
     # this list will hold all the calls from the logfile, sorted and deduped
     log_calls = []
@@ -276,22 +435,20 @@ def get_qrz_grids(args,logfile,outfile):
     # this list will hold the list of calls and grids returned from qrz.com
     qrz_grids = []
 
-    # get lists of ungridded calls and confirmed grids from logfile
+    # get list of ungridded calls from logfile
     with open(logfile,encoding='latin1') as f:
         for line in f:
             if line.startswith('#'):
                 continue
             fields = line.split(args.separator)  
-            if fields[5] == '----':
+            if fields[5][:4] == '----':
                 # need to look up this call in qrz
                 log_calls.append(fields[1])
-            else:
-                # add to the list of confirmed grids
-                log_grids.append(fields[5][:4])
 
     # sort and remove duplicates
     log_calls = dedupe_list(log_calls)
-    log_grids = dedupe_list(log_grids)
+
+    print("Querying QRZ.com for",len(log_calls),"calls.",end=" ")
 
     # login to QRZ.com and get session key
     qrz_https_url = "https://xmldata.qrz.com/xml/current/"
@@ -322,149 +479,165 @@ def get_qrz_grids(args,logfile,outfile):
             if '<grid>' in rec:
                 grid = rec.replace('>','<').split('<')[2]
 
-        qrz_list.append([grid,call])
+        qrz_list.append([grid[:4],call])
         print('.',end='',flush=True)
 
     qrz_list = sorted(qrz_list)
-    count = len(qrz_list)
+    num  = len(qrz_list)
 
     # write the qrz results to file
     with open(outfile,'w') as f:
-        string = "# Call/grid match from QRZ.com created by\n"
+        string = "# Call/grid match from QRZ.com created by lotw_tool.py\n"
         f.write(string)
-        string = str("# lotw_tool.py v" + version + " from " + outfile + "\n")
-        print(type(string),string)
+        string = str("# v" + version + " from " + outfile + "\n")
         f.write(string)
         for l in qrz_list:
-            string = l[0][:4] + '\t' + l[1] + '\n'
+            string = l[0] + '\t' + l[1] + '\n'
             f.write(string)
-    print("\nFinished getting QRZ.com matches for {} calls.".format(count))
-    print("Elapsed time: {.1f}".format(time.time() - start_time),end=" ")
-    print("and wrote data to",outfile)
+    print()
+    print("Finished getting QRZ.com matches for", num, "calls in", \
+    "{:.0f}".format(time.time() - start_time))
+    print("seconds, and wrote data to",outfile)
 
-###############################################################################
-# getargs -- get command line arguments and supply defaults
-###############################################################################
-def getargs():
-    parser = argparse.ArgumentParser(description=
-            'Tool to download/parse ARRL Log of the World ADI files')
+##############################################################################
+# get_gridless -- create list of calls/qsos for which we haven't
+# been able to find a grid
+##############################################################################
+def get_gridless(logfile,qso_list,qrz_grids):
+    # this file will hold the QSOs for which we still don't have a grid
+    p = Path(logfile)
+    gridless_file = str(p.parent.joinpath(p.stem + '_gridless.txt'))
+    gridless = []   # list of calls with no matching grid
+    gridless_qsos = []  # list of qsos with those calls
 
-    def str2bool(v):
-        if isinstance(v, bool):
-            return v
-        if v.lower() in ('yes', 'true', 't', 'y', '1'):
-            return True
-        elif v.lower() in ('no', 'false', 'f', 'n', '0'):
-            return False
-        else:
-            raise argparse.ArgumentTypeError('Boolean value expected.')
+    for x in qrz_grids:
+        if len(x) == 2 and x[0][:4] == '----':
+            gridless.append(x[1])
+    gridless = dedupe_list(gridless)
 
-    # login and file parametersp
-    parser.add_argument('--adifile',type=str,
-                      help='read this ADI file (if blank, download from LoTW')
+    for x in gridless:
+        for y in qso_list:
+            if x.strip() in y and y[5][:4] == '----':
+                gridless_qsos.append(y)    
 
-    # note: --login, --password, --logcall, --own_gridsquare
-    # are all ignored if --adifile is specified
-    parser.add_argument("--login", help='LOtW user name')
-    parser.add_argument("--password", help='LOtW user password')
+    # sort by call, then date
+    gridless_qsos.sort(key=lambda x: (x[1],x[0]))
 
-    # these options help select log call or location since LoTW
-    # doesn't allow you to sort by the location defined in tQSL.
-    parser.add_argument('--logcall',type=str,
-                      help='Select QSOs where my call is this')
-    parser.add_argument('--own_gridsquare',type=str.upper,
-                      help='Select QSOs where my grid is this')
+    with open(gridless_file,'w') as f:
+        string = "# " + str(len(gridless_qsos)) + \
+                " QSOs whose grids cannot be found, created by lotw_tool.py\n"
+        f.write(string)
+        string = "# v" + version + " from " + qrzfile + "\n"
+        f.write(string)
+        string = "#\n"
+        f.write(string)
+        string = "# Rovers:\n"
+        f.write(string)
+        for x in gridless_qsos:
+            if '/R' in x[1]:
+                string = "{}{}{}{}{}{}{}{}{}{}{}{}{}{}\n".format(
+                    x[0],sep,x[1],sep,x[2],sep,x[3],sep,x[4],
+                    sep,x[5],sep,x[6],sep,x[7])
+                f.write(string)
+        string = "#\n"
+        f.write(string)
+        string = "# Others:\n"
+        f.write(string)
+        for x in gridless_qsos:
+            if '/R' not in x[1]:
+                string = "{}{}{}{}{}{}{}{}{}{}{}{}{}{}\n".format(
+                    x[0],sep,x[1],sep,x[2],sep,x[3],sep,x[4],
+                    sep,x[5],sep,x[6],sep,x[7])
+                f.write(string)
 
-    # selection parameters
-    qso_status = parser.add_mutually_exclusive_group()
-    qso_status.add_argument('--qso_qsl', action='store_true',
-                      help='Download only QSOs with QSL (default download all)')
-    qso_status.add_argument('--qso_noqsl', action='store_true',
-                      help='Output only QSOs without QSL)')
+    print("Wrote {} QSOs ({} unique calls) with no grid\n\tto {}...".format(
+        len(gridless_qsos),len(gridless),gridless_file))
 
-    # this causes a QRZ lookup for QSOs without grid information.
-    # output goes to a separate file with de-duped call and QRZ
-    # grid
-    parser.add_argument('--match_missing_grids', action='store_true',
-                      help='Merge QRZ grid data to QSOs with missing grid')
-    parser.add_argument("--qrz_login", help='QRZ user name')
-    parser.add_argument("--qrz_password", help='QRZ user password')
+##############################################################################
+# get_unconfirmed_grids -- build list of grids/qsos that we think we
+# have worked that we think might be unconfirmed
+##############################################################################
+def get_unconfirmed_grids(logfile,qso_list,confirmed_grid_list,qrz):
+    # this file will hold calls and qrz grids for possibly unconfirmed grids
+    p = Path(logfile)
+    unconfirmed_file = str(p.parent.joinpath(p.stem + '_unconfirmed.txt'))
+    new_grid_file = str(p.parent.joinpath(p.stem + '_new_grid_list.txt'))
 
-    
-    parser.add_argument('--qso_startdate',type=str,
-                      help='Output QSOs after this date (YYYY-MM-DD)')
-    parser.add_argument('--qso_enddate',type=str,
-                      help='Output QSOs before this date (YYYY-MM-DD)')
-    parser.add_argument('--qso_call',type=str.upper,
-                      help='Output QSOs with this call')
-    parser.add_argument('--qso_band',type=str.upper,
-                      help='Select QSOs where the band is this (e.g., \'6M\')')
-    parser.add_argument('--qso_mode',type=str.upper,
-                      help='Select QSOs where the mode is this (e.g., \'CW\')')
+    # remove calls from qrz_grids where we still don't have a grid
+    qrz[:] = [x for x in qrz if x[0][:4] != '----']
+    # remove calls with a grid we've already confirmed
+    qrz[:] = [x for x in qrz if x[0][:4] not in confirmed_grid_list]
 
-    # LoTW allows you to select QSOs by numbered DXCC entity, which isn't
-    # all that useful if you have to map the country name to the number
-    # (and I'm way too lazy to build a lookup, and even if I did, you
-    # wouldn't enter the name exactly the same way_.  But it might be
-    # useful to see only DX (being U.S.-centric, that means anything
-    # that's not U.S.A.).  Selecting this doesn't affect the adifile
-    # contents as the filter is applied only at the output stage.
-    parser.add_argument('--dx_only',action='store_true',
-                      help='Select QSOs where country is not U.S.A.')
+    # we might have worked this station another time and gotten
+    # a grid then.  Exclude that call, at the slight risk
+    # they might have moved to another grid.
+    def check_qso_list(call,qso_list):
+        q_with_grid = False
+        for x in qso_list:
+            if x[1] == call and x[5][:4] != '----':
+                q_with_grid = True
+        return q_with_grid       
 
-    # LoTW doesn't allow you to specify gridsquare in the download, so
-    # if you specify --gridsquare it won't affect the contents of the
-    # downloaded adifile.  However, the log output will be filtered
-    # to include only the selected grid.  If you want to find records
-    # where the grid is blank, use this option with "None" as the argument.
-    parser.add_argument('--gridsquare',type=str.upper,
-                      help='Select QSOs from this grid; \'None\' for missing')
+    qrz[:] = [x for x in qrz if not check_qso_list(x[1],qso_list)]
 
-    # sort parameters.  To keep things sane, you can
-    # only sort by one of these (plus QSO date/time).  Input will be
-    # changed to upper case.
-    choices=['CALL','GRIDSQUARE', 'STATE', 'COUNTRY', 'BAND', 'MODE']
-    parser.add_argument('--sortby',type=str.upper,default=None,choices=choices)
+    # generate and write list of possibly new grids to file
+    new_grids = []
+    for x in qrz:
+        new_grids.append(x[0][:4])
+    new_grids.sort()
+    new_grids = dedupe_list(new_grids)
+    with open(new_grid_file,'w') as f:
+        string = "# These " + str(len(qrz_grids)) + \
+            " grids might be new; created by lotw_tool.py\n"
+        f.write(string)
+        string = "# v" + version + " from " + qrzfile + "\n"
+        f.write(string)
+        for x in new_grids:
+            string = x + '\n'
+            f.write(string)
+    print("Wrote list of",len(new_grids),"possibly confirmed grids")
+    print("\tto", new_grid_file)
 
-    # output file parameters
-    parser.add_argument('--logfile',type=str,
-                      help='Log file name (if not given, autogenerate it')
-    parser.add_argument('--separator',type=str,default='\t',
-                      help='Log file field separator (default is tab)')
+    # create the qso list
+    unconfirmed_qsos = []
+    for x in qrz:
+        for y in qso_list:
+            if y[1] == x[1]:
+                # replace the '----' with putative grid in angle brackets
+                y[5] = '<' + x[0] + '>'
+                unconfirmed_qsos.append(y)    
+    # sort by grid, call, date
+    unconfirmed_qsos.sort(key=lambda x: (x[5],x[1],x[0]))
 
-    args = parser.parse_args()
+    # this list is just to know how many calls represent possibly unconfirmed
+    unconfirmed_calls = []
+    for x in unconfirmed_qsos:
+        if x[1]:
+            unconfirmed_calls.append(x[1])
+    unconfirmed_calls.sort()
+    unconfirmed_calls = dedupe_list(unconfirmed_calls)
 
-    if not args.adifile:
-        if not args.login or not args.password or not args.logcall:
-            parser.error("Error: either login/password/logcall or "\
-                              "adifile required")
+    with open(unconfirmed_file,'w') as f:
+        string = "# " + str(len(unconfirmed_qsos)) + \
+            " QSOs that might represent " + str(len(new_grids)).strip() + \
+            " new grids, created by lotw_tool.py\n"
+        f.write(string)
+        string = "# v" + version + " from " + qrzfile + "\n"
+        f.write(string)
+        string = "# Grid fields are from QRZ.com data\n"
+        f.write(string)
+        for x in unconfirmed_qsos:
+            string = "{}{}{}{}{}{}{}{}{}{}{}{}{}{}\n".format(
+                    x[0],sep,x[1],sep,x[2],sep,x[3],sep,x[4],
+                    sep,x[5],sep,x[6],sep,x[7])
+            f.write(string)
 
-#    if args.match_missing_grids:
-#        if not args.qrz_login or not argz.qrz_password:
-#            parser.error("Error: --qso_nogrid requires QRZ login and password")
-
-    if args.adifile and (args.login or args.password or args.logcall):
-        print("NOTE: adifile specified, login/password/logcall/"\
-                "own_gridsquare ignored")
-    if args.gridsquare in ['none','None','NONE']:
-        args.gridsquare = '----'
-
-    if args.qso_qsl:
-        args.qso_qsl = 'yes'
-    else:
-        args.qso_qsl = 'no'
-
-    if args.qso_noqsl:
-        args.qso_noqsl = 'yes'
-    else:
-        args.no_qsl = 'no'
-
-    if args.dx_only:
-        args.dx_only = 'yes'
-    else:
-        args.dx_only = 'no'
-
-    return args
+    print(("Wrote {} QSOs ({} unconfirmed calls) " + \
+            "with {} unconfirmed grids").format(
+            len(unconfirmed_qsos),len(unconfirmed_calls),len(new_grids)))
+    print("\tto",unconfirmed_file)
+    print()
+    print("All finished!")
 
 ###############################################################################
 ###############################################################################
@@ -474,9 +647,10 @@ def getargs():
 
 # get options
 args = getargs()
+sep = args.separator
 
 print()
-print("lotw_tool by N8UR, version",version)
+print("lotw_tool.py by N8UR, version",version)
 
 # if no input file specified, do LoTW download
 adifile = args.adifile
@@ -488,7 +662,6 @@ if not adifile:
 # now generate the logfile from the adifile
 p = Path(adifile)
 if not args.logfile:
-    # this gets us the basename for the output files
     logfile = str(p.parent.joinpath(p.stem + ".log"))
 else:
     logfile = args.outfile
@@ -496,60 +669,45 @@ make_logfile(args,adifile,logfile)
 
 if args.match_missing_grids:
     # this file will hold the grid/call results from the qrz queries
-    qrzfile = str(p.parent.joinpath(p.stem + '_qrz_grids.txt'))
+    qrzfile = str(p.parent.joinpath(p.stem + '_qrz_matches.txt'))
     get_qrz_grids(args,logfile,qrzfile)
 
-    # read in confirmed grids from logfile
-    logfile = "n8ur20191013-151216.log"
-    confirmed_grids = []
+    # read in the logfile and build list of QSOs
+    qso_list = []
     with open(logfile,'r') as f:
         for l in f:
-            l = f.readline().strip()
             if l.startswith('#'):
                 continue
-            fields = l.split(args.separator)
-            if fields[5][:4] != '----':
-                confirmed_grids.append(fields[5][:4])
+            l = l.strip()
+            fields = l.split(sep)
+            qso_list.append(fields)
+    
+    get_confirmed_grids(args,logfile)
+    
+    # read in confirmed grid list
+    p = Path(logfile)
+    confirmed_grids_file = str(p.parent.joinpath(p.stem +
+        "_confirmed_grids.txt"))
+    confirmed_grids_list = []
+    with open(confirmed_grids_file,'r') as f:
+        for l in f:
+            if l.startswith('#'):
+                continue
+            confirmed_grids_list.append(l.strip())
 
     # read in qrz_grids from qrzfile
-    qrzfile = "n8ur20191013-151216_qrz_grids.log"
     qrz_grids = []
     with open(qrzfile,'r') as f:
         for l in f:
-            l = f.readline().strip()
             if l.startswith('#'):
                 continue
-            qrz_grids.append(l.split())
+            l = l.strip()
+            fields = l.split(sep)
+            qrz_grids.append(fields)
 
-    # this file will hold the callsigns for which,
-    # after all this work, we still don't have a grid
-    p = Path(qrzfile)
-    gridless_file = str(p.parent.joinpath(p.stem + '_gridless.txt'))
-    with open(gridless_file,'w') as f:
-        string = "# Calls whose grids cannot be found -- created by\n"
-        f.write(string)
-        string = "# lotw_tool.py v" + version + " from " + qrzfile + "\n"
-        f.write(string)
-        for x in qrz_grids[:]:    # iterate over a slice so we can remove items
-            if len(x) == 2 and x[0] == '----':
-                string = x[1] + '\n'
-                f.write(string)
-                qrz_grids.remove(x)   # remove to simplify next step
+    get_gridless(logfile,qso_list,qrz_grids)
 
-    # this file will hold calls and qrz grids for possibly unconfirmed grids
-    p = Path(qrzfile)
-    unconfirmed_file = str(p.parent.joinpath(p.stem + '_unconfirmed.txt'))
-    with open(unconfirmed_file,'w') as f:
-        string = "# Grids we might have worked but haven't confirmed\n"
-        f.write(string)
-        string = "# Created by lotw_tool.py v" + version + \
-                " from " + qrzfile + "\n"
-        f.write(string)
-        for x in qrz_grids:
-            if len(x) == 2 and not x[0] in confirmed_grids:
-                string = x[0] + '\t' + x[1] + '\n'
-                f.write(string)
-
+    get_unconfirmed_grids(logfile,qso_list,confirmed_grids_list,qrz_grids)
 
 exit()
 

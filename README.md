@@ -88,6 +88,41 @@ in the QRZ database), or busted calls.
 the grid does not show up in the LoTW file as being confirmed.  This is the
 list you'll want to start with to pump up your grid count.
 
+TYPICAL RUN:
+```
+jra@flob:~/src/ham-tools/lotw_tool$ ./lotw_tool.py --login n8ur --password xxxx --logcall n8ur --mygrid EN75 --band 6M --match_missing_grids --qrz_login n8ur --qrz_password xxxx
+
+lotw_tool.py by N8UR, version 2019-10-18.1
+Sending data request to LoTW...
+Saving adif data as n8ur20191018-111518.adi (this may take a while)...
+Writing processed log file to n8ur20191018-111518.log
+Querying QRZ.com for 587 calls. ...........................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................
+Finished getting QRZ.com matches for 587 calls in 53
+seconds, and wrote data to n8ur20191018-111518_qrz_matches.txt
+Writing 265 confirmed grids to n8ur20191018-111518_confirmed_grids.txt
+Wrote 33 QSOs (30 unique calls) with no grid
+	to n8ur20191018-111518_gridless.txt...
+Wrote list of 41 possibly confirmed grids
+	to n8ur20191018-111518_new_grid_list.txt
+Wrote 63 QSOs (48 unconfirmed calls) with 41 unconfirmed grids
+	to n8ur20191018-111518_unconfirmed.txt
+
+All finished!
+```
+
+OUTPUT FILES:
+Output files are all prefixed with the "logcall" plus date and time
+
+```
+n8ur20191018-111518.adi                     Raw ADIF file returned from LoTW
+n8ur20191018-111518_confirmed_grids.txt     LoTW confirmed grids  
+n8ur20191018-111518_gridless.txt            QSOs we couldn't match to grid
+n8ur20191018-111518.log                     Formatted log file from adifile
+n8ur20191018-111518_new_grid_list.txt       List of possible new grids
+n8ur20191018-111518_qrz_matches.txt         Results of QRZ.com lookup
+n8ur20191018-111518_unconfirmed.txt         QSOs with possible new grids
+```
+
 ALL THE OPTIONS (as of 2019-10-13.1):
 ```
 usage: lotw_tool.py [-h] [--adifile ADIFILE] [--login LOGIN]
