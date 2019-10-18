@@ -123,7 +123,7 @@ n8ur20191018-111518_qrz_matches.txt         Results of QRZ.com lookup
 n8ur20191018-111518_unconfirmed.txt         QSOs with possible new grids
 ```
 
-ALL THE OPTIONS (as of 2019-10-13.1):
+ALL THE OPTIONS (as of 2019-10-18.1):
 ```
 usage: lotw_tool.py [-h] [--adifile ADIFILE] [--login LOGIN]
                     [--password PASSWORD] [--logcall LOGCALL]
