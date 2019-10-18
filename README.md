@@ -127,13 +127,11 @@ ALL THE OPTIONS (as of 2019-10-13.1):
 ```
 usage: lotw_tool.py [-h] [--adifile ADIFILE] [--login LOGIN]
                     [--password PASSWORD] [--logcall LOGCALL]
-                    [--own_gridsquare OWN_GRIDSQUARE]
-                    [--qso_qsl | --qso_noqsl] [--match_missing_grids]
-                    [--qrz_login QRZ_LOGIN] [--qrz_password QRZ_PASSWORD]
-                    [--qso_startdate QSO_STARTDATE]
-                    [--qso_enddate QSO_ENDDATE] [--qso_call QSO_CALL]
-                    [--qso_band QSO_BAND] [--qso_mode QSO_MODE] [--dx_only]
-                    [--gridsquare GRIDSQUARE]
+                    [--mygrid MYGRID] [--qsl | --noqsl]
+                    [--match_missing_grids] [--qrz_login QRZ_LOGIN]
+                    [--qrz_password QRZ_PASSWORD] [--startdate STARTDATE]
+                    [--enddate ENDDATE] [--call CALL] [--band BAND]
+                    [--mode MODE] [--dx_only] [--grid GRID]
                     [--sortby {CALL,GRIDSQUARE,STATE,COUNTRY,BAND,MODE}]
                     [--logfile LOGFILE] [--separator SEPARATOR]
 
@@ -145,28 +143,26 @@ optional arguments:
   --login LOGIN         LOtW user name
   --password PASSWORD   LOtW user password
   --logcall LOGCALL     Select QSOs where my call is this
-  --own_gridsquare OWN_GRIDSQUARE
-                        Select QSOs where my grid is this
-  --qso_qsl             Download only QSOs with QSL (default download all)
-  --qso_noqsl           Output only QSOs without QSL)
+  --mygrid MYGRID       Select QSOs where my grid is this
+  --qsl                 Download only QSOs with QSL (default download all)
+  --noqsl               Output only QSOs without QSL)
   --match_missing_grids
                         Merge QRZ grid data to QSOs with missing grid
   --qrz_login QRZ_LOGIN
                         QRZ user name
   --qrz_password QRZ_PASSWORD
                         QRZ user password
-  --qso_startdate QSO_STARTDATE
+  --startdate STARTDATE
                         Output QSOs after this date (YYYY-MM-DD)
-  --qso_enddate QSO_ENDDATE
-                        Output QSOs before this date (YYYY-MM-DD)
-  --qso_call QSO_CALL   Output QSOs with this call
-  --qso_band QSO_BAND   Select QSOs where the band is this (e.g., '6M')
-  --qso_mode QSO_MODE   Select QSOs where the mode is this (e.g., 'CW')
+  --enddate ENDDATE     Output QSOs before this date (YYYY-MM-DD)
+  --call CALL           Output QSOs with this call
+  --band BAND           Select QSOs where the band is this (e.g., '6M')
+  --mode MODE           Select QSOs where the mode is this (e.g., 'CW')
   --dx_only             Select QSOs where country is not U.S.A.
-  --gridsquare GRIDSQUARE
-                        Select QSOs from this grid; 'None' for missing
+  --grid GRID           Select QSOs from this grid; 'None' for missing
   --sortby {CALL,GRIDSQUARE,STATE,COUNTRY,BAND,MODE}
   --logfile LOGFILE     Log file name (if not given, autogenerate it
   --separator SEPARATOR
                         Log file field separator (default is tab)
+
 ```
