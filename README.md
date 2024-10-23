@@ -11,6 +11,10 @@ There are two ways to get data:
 and --logcall parameters.  --logcall is the "my callsign" requested and
 is required because multiple callsigns can be registered to one account.
 
+You can also place these command line values in a config file.
+This allows the password to be removed from the command line history file.
+See the config section below.
+
 The program will send a request to the ARRL web server and will save the
 results to a file.  You can specify the name with the --adifile option; if
 you don't, the filename will be in the format CALLYYYYMMDD-HHMMSS.adi.
@@ -123,10 +127,49 @@ n8ur20191018-111518_qrz_matches.txt         Results of QRZ.com lookup
 n8ur20191018-111518_unconfirmed.txt         QSOs with possible new grids
 ```
 
-ALL THE OPTIONS (as of 2019-10-18.1):
+CONFIG FILE
+
+The login and password command arguments can be placed in a config file.
+The default location is `~/.lotw_tool/config.cfg` but that can be changed with the `--config` argument.
+A sample file is as follows:
 ```
-usage: lotw_tool.py [-h] [--adifile ADIFILE] [--login LOGIN]
-                    [--password PASSWORD] [--logcall LOGCALL]
+$ cat ~/.lotw_tool/config.cfg
+[LoTW]
+login:		LOGIN
+password:	PASSWORD
+logcall:	LOGCALL
+$
+```
+This file should be `chmod 600` to protect the contents.
+Additional sections can be added should you manage more than one login at LoTW.
+They are selected via the `--section NAME` argument.
+For example, here's a config file with more than one login
+```
+$ cat ~/.lotw_tool/config.cfg
+[A1A]
+login:		A1A
+password:	PASSWORD
+logcall:	A1A
+[A1B]
+login:		A1B
+password:	PASSWORD
+logcall:	A1B
+$
+```
+You would use these commands: `lotw_tool.py --section A1A` or `lotw_tool.py --section A1B` to
+download from different logins/accounts.
+This capability can be extended to all the command line arguments if needed.
+
+Note that using `--adifile` with a config file present can produce the
+`NOTE: adifile specified, login/password/logcall/mygrid ignored` warning.
+This can be safely ignored.
+
+ALL THE OPTIONS (as of 2024-10-23.1):
+```
+usage: lotw_tool.py [-h]
+                    [--config CONFIGFILE] [--section NAME]
+                    [--adifile ADIFILE]
+                    [--login LOGIN] [--password PASSWORD] [--logcall LOGCALL]
                     [--mygrid MYGRID] [--qsl | --noqsl]
                     [--match_missing_grids] [--qrz_login QRZ_LOGIN]
                     [--qrz_password QRZ_PASSWORD] [--startdate STARTDATE]
@@ -139,6 +182,8 @@ Tool to download/parse ARRL Log of the World ADI files
 
 optional arguments:
   -h, --help            show this help message and exit
+  --config CONFIGFILE   read this config file (default: ~/.lotw_tool/config.cfg)
+  --section NAME        config file section name (default: 'LoTW')
   --adifile ADIFILE     read this ADI file (if blank, download from LoTW
   --login LOGIN         LOtW user name
   --password PASSWORD   LOtW user password

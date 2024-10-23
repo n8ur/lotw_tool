@@ -28,6 +28,7 @@ from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
 from pathlib import Path
 import argparse
+import configparser
 
 ###############################################################################
 # Fields contained in LOTW download
@@ -47,6 +48,30 @@ field_keys = [
     ]
 
 ###############################################################################
+# getconfigfile - get config file values
+###############################################################################
+def getconfigfile(filename, section):
+    config_args = {}
+    if filename is None or len(filename) == 0:
+        return config_args
+    if section is None or len(section) == 0:
+        return config_args
+    # if config file is missing - this just continues as if it's a zero length file
+    config = configparser.ConfigParser()
+    config.read(Path(filename).expanduser())
+    if len(config.sections()) == 0:
+        # empty or missing file
+        return config_args
+    try:
+        # all config is placed in a LoTW section or similar named section
+        lotw_section = config[section]
+    except KeyError:
+        exit('%s section missing from config file %s' % (section, filename))
+    for key in lotw_section:
+        config_args[key] = lotw_section[key]
+    return config_args
+
+###############################################################################
 # getargs -- get command line arguments and supply defaults
 ###############################################################################
 def getargs():
@@ -62,6 +87,14 @@ def getargs():
             return False
         else:
             raise argparse.ArgumentTypeError('Boolean value expected.')
+
+    # config file and section
+    parser.add_argument('--config',type=str,
+                      default='~/.lotw_tool/config.cfg',
+                      help='read this config file')
+    parser.add_argument('--section',type=str,
+                      default='LoTW',
+                      help='config file section name')
 
     # login and file parametersp
     parser.add_argument('--adifile',type=str,
@@ -137,6 +170,12 @@ def getargs():
                       help='Log file field separator (default is tab)')
 
     args = parser.parse_args()
+
+    # read config file - overwrite only if no command line arg exists
+    config_args = getconfigfile(args.config, args.section)
+    for c in config_args:
+        if c in args and getattr(args, c) is None:
+            setattr(args, c, config_args[c])
 
     if not args.adifile:
         if not args.login or not args.password or not args.logcall:
